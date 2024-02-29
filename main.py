@@ -6,11 +6,13 @@ class Driver:
         self.name = name
         self.price = price
         self.team = team
+        self.points = 0
 
 class Constructor:
     def __init__(self, name, price):
         self.name = name
         self.price = price
+        self.points = 0
 
 # Example data
 drivers = [
@@ -164,135 +166,166 @@ qualifying_results_data = all_data["qualifyingResults"]
 sprint_results_data = all_data["sprintResults"]
 sprint_shootout_results_data = all_data["sprintShootoutResults"]
 
+### Process CSV Data
+def calculate_position_change(race_results):
+    for result in race_results:
+        starting_grid = int(result['Starting Grid'])
+        position = result['Position']
+        if position.isdigit():
+            position = int(position)
+            position_change = starting_grid - position
+        else:
+            # Handle the case when position is "NC" (Not Classified)
+            position_change = 0  # Or any other value you prefer
+        result['Positions Changed'] = position_change
+    return race_results
+
+# Iterate over each race track name and its corresponding race results
+for track_name, race_results in race_results_data.items():
+    print(f"Race Results for {track_name}:")
+    
+    # Calculate position change for each race
+    race_results_with_position_change = calculate_position_change(race_results)
+    
+    for result in race_results_with_position_change:
+        print(result)
+    
+    print()  # Add a blank line between races for clarity
 
 #### SCORING BASED ON 2023  ####
+
+# Define the points system
+points_system = {
+    1: 25, 
+    2: 18, 
+    3: 15, 
+    4: 12, 
+    5: 10, 
+    6: 8, 
+    7: 6, 
+    8: 4, 
+    9: 2, 
+    10: 1,
+    # 11th - 20th place
+    'DNF': -20, 
+    'Disqualified': -25
+}
+
+points_system_quali = {
+    1: 10,  # Pole position
+    2: 9,
+    3: 8,
+    4: 7,
+    5: 6,
+    6: 5,
+    7: 4,
+    8: 3,
+    9: 2,
+    10: 1,
+    # 11th - 20th place
+    'NC': -5,  # No time set
+    'Disqualified': -15
+}
+
+
+# Function to update driver points based on race results
+def update_driver_points(race_results, drivers):
+    for result in race_results:
+        position = result['Position']
+        for driver in drivers:
+            if driver.name == result['Driver']:
+                if position.isdigit():
+                    position = int(position)
+                    if 1 <= position <= 10:
+                        driver.points += points_system[position]
+                        # Add points for positions gained/lost
+                        position_change = int(result['Positions Changed'])
+                        if position_change > 0:
+                            driver.points += position_change  # Points gained for positions gained
+                        elif position_change < 0:
+                            driver.points -= position_change  # Points lost for positions lost
+                        # Add points for fastest lap
+                        if result['Set Fastest Lap'] == 'Yes':
+                            driver.points += 10
+                        # Add points for Driver of the Day ### Not included atm #########################################
+                        if result.get('Driver Of The Day', '').lower() == driver.name.lower():
+                            driver.points += 10
+                    elif position in ['DNF', 'Disqualified']:
+                        driver.points += points_system[position]
+                break
+
+# Function to update driver points based on qualifying results
+def update_driver_points_quali(qualifying_results, drivers):
+    for result in qualifying_results:
+        position = result['Position']
+        for driver in drivers:
+            if driver.name == result['Driver']:
+                if position.isdigit():
+                    position = int(position)
+                    if 1 <= position <= 10:
+                        driver.points += points_system_quali[position]
+                elif position == 'NC':
+                    driver.points += points_system_quali[position]
+                elif position == 'Disqualified':
+                    driver.points += points_system_quali[position]
+                break
+
+
+
+# Update driver points for each race
+for race_results in race_results_data.values():
+    update_driver_points(race_results, drivers)
+
+# Update driver points for each race
+for qualifying_results in qualifying_results_data.values():
+    update_driver_points_quali(qualifying_results, drivers)
+
+# Calculate constructor points based on drivers' points
+for constructor in constructors:
+    constructor.points = sum(driver.points for driver in drivers if driver.team == constructor.name)
+
+# Print driver points
+for driver in drivers:
+    print(f"{driver.name}: {driver.points} points")
     
-# Define a function to score the teams
-def score_teams(valid_teams, race_results_data, qualifying_results_data, sprint_results_data):
-    scored_teams = []
-    for team in valid_teams:
-        drivers, constructors, remaining_budget = team
-        team_score = 0
-
-        # Score for each race
-        for race_name, race_results in race_results_data.items():
-            # Filter race results for the current race
-            race_results_for_race = [result for result in race_results if result['Track'] == race_name]
-            
-            # Score qualifying, sprint, and race for each driver
-            for driver in drivers:
-                qualifying_score = 0
-                sprint_score = 0
-                race_score = 0
-                
-                for result in race_results_for_race:
-                    if result['Driver'] == driver.name:
-                        # Score qualifying
-                        for row in qualifying_results_data[race_name]:
-                            if row['Driver'] == driver.name:
-                                try:
-                                    position = int(row['Position'])
-                                    if position == 1:
-                                        qualifying_score += 10
-                                    elif position <= 10:
-                                        qualifying_score += 11 - position
-                                    elif position <= 20:
-                                        qualifying_score += 0
-                                    else:
-                                        qualifying_score -= 5
-                                except ValueError:
-                                    # Handle the case where Position is not a valid integer
-                                    pass
-                            
-                        # Score race
-                        try:
-                            position = int(result['Position'])
-                            if position == 1:
-                                race_score += 25
-                            elif position <= 10:
-                                race_score += 11 - position
-                            elif position <= 20:
-                                race_score += 0
-                            else:
-                                race_score -= 20
-                        except ValueError:
-                            # Handle the case where Position is not a valid integer
-                            pass
-
-                # Add scores for each race to the team score
-                team_score += qualifying_score + sprint_score + race_score
-
-            # Score constructors for each race
-            constructor_score = 0
-            for result in race_results_for_race:
-                for constructor in constructors:
-                    if result['Team'] == constructor.name:
-                        # Score constructors
-                        try:
-                            position = int(result['Position'])
-                            if position == 1:
-                                constructor_score += 25
-                            elif position <= 10:
-                                constructor_score += 11 - position
-                            elif position <= 20:
-                                constructor_score += 0
-                            else:
-                                constructor_score -= 20
-                        except ValueError:
-                            # Handle the case where Position is not a valid integer
-                            pass
-
-            # Add constructor score to the team score
-            team_score += constructor_score
-
-            # Score sprint if available
-            if race_name in sprint_results_data:
-                sprint_results_for_race = [result for result in sprint_results_data[race_name] if result['Driver'] == driver.name]
-                for result in sprint_results_for_race:
-                    try:
-                        position = int(result['Position'])
-                        if position <= 8:
-                            sprint_score += 9 - position
-                        elif position <= 20:
-                            sprint_score += 0
-                        else:
-                            sprint_score -= 20
-                    except ValueError:
-                        # Handle the case where Position is not a valid integer
-                        pass
-
-                # Add sprint score to the team score
-                team_score += sprint_score
-
-        scored_teams.append((team, team_score))
-        
-        
-    
-    return scored_teams
-
-print("scored")
+print("\n\n### Constructors ###\n\n")
+# Print constructor points
+for constructor in constructors:
+    print(f"{constructor.name}: {constructor.points} points")
 
 
 
-scored_teams = score_teams(valid_teams, race_results_data, qualifying_results_data, sprint_results_data)
-
-# Sort scored teams by score in descending order
-scored_teams.sort(key=lambda x: x[1], reverse=True)
-
-# Print top 10 scored teams
-print("Top 10 scored teams:")
-for idx, (team, score) in enumerate(scored_teams[:10], start=1):
-    drivers, constructors, remaining_budget = team
-    print(f"Team {idx} - Score: {score}")
-    print("Drivers:")
-    for driver in drivers:
-        print(f"Name: {driver.name}")
-    print("Constructors:")
-    for constructor in constructors:
-        print(f"Name: {constructor.name}")
-    print(f"Remaining Budget: {remaining_budget}")
-    print()
+# Calculate team score based on driver and constructor points
+team_scores = []
+for driver_team, constructor_team, remaining_budget in valid_teams:
+    team_score = 0
+    # Calculate driver points for the team
+    for driver in driver_team:
+        team_score += driver.points
+    # Calculate constructor points for the team
+    for constructor in constructor_team:
+        team_score += constructor.points
+    team_scores.append((driver_team, constructor_team, team_score, remaining_budget))
 
 
-print("Teams Printed")
-print("Number of scored teams:", len(scored_teams))
+# Sort team scores based on team score in descending order
+team_scores.sort(key=lambda x: x[2], reverse=True)
+
+print("\n\n\n")
+# Print top 100 highest-scoring teams
+print("Top 100 Highest-Scoring Teams:")
+for idx, (driver_team, constructor_team, team_score, remaining_budget) in enumerate(team_scores[:100], start=1):
+    print(f"Team {idx} Score: {team_score} points")
+
+print("\n\n\n")
+
+# Print highest scoring team and its drivers and constructors
+highest_scoring_team = team_scores[0]
+print("Highest Scoring Team:")
+print(f"Team Score: {highest_scoring_team[2]} points")
+print("Drivers:")
+for driver in highest_scoring_team[0]:
+    print(f"- {driver.name}")
+print("Constructors:")
+for constructor in highest_scoring_team[1]:
+    print(f"- {constructor.name}")
