@@ -132,7 +132,7 @@ print(len(valid_teams))
 
 
 ######## LOADING CSV #######
-
+# From https://github.com/toUpperCase78/formula1-datasets/tree/master
 
 # Define a function to load CSV data
 def load_race_results(file_path):
